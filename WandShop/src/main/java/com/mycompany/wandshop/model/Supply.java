@@ -58,23 +58,4 @@ public class Supply {
                 + ", supplier='" + supplier + '\''
                 + '}';
     }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        Supply supply = (Supply) o;
-        return id == supply.id
-                && Objects.equals(date, supply.date)
-                && Objects.equals(supplier, supply.supplier);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id, date, supplier);
-    }
 }
