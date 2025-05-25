@@ -1,5 +1,6 @@
 package com.mycompany.wandshop.view;
 
+import com.mycompany.wandshop.database.Validator;
 import com.mycompany.wandshop.database.WandStoreDAO;
 import com.mycompany.wandshop.model.*;
 import javax.swing.*;
@@ -8,6 +9,7 @@ import java.awt.event.ActionEvent;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 import javax.swing.table.*;
@@ -47,6 +49,10 @@ public class MainFrame extends JFrame {
     
     private DefaultTableModel suppliesTableModel;
     private JTable suppliesTable;
+    private DefaultTableModel woodTableModel;
+    private DefaultTableModel coreTableModel;
+    private JTable woodTable;
+    private JTable coreTable;
     
     private JTextArea suppliesArea;
     private JTextArea woodSuppliesArea;
@@ -70,6 +76,12 @@ public class MainFrame extends JFrame {
 
         JPanel purchasesPanel = createPurchasesPanel();
         tabbedPane.addTab("Покупки", purchasesPanel);
+        
+        JPanel materialsPanel = createMaterialsPanel();
+        tabbedPane.addTab("Склад материалов", materialsPanel);
+
+        loadWoodTypes();
+        loadCoreTypes();
         
         UIManager.put("TableHeader.font", new Font("SansSerif", Font.BOLD, 14));
         UIManager.put("TableHeader.background", new Color(70, 130, 180));
@@ -168,7 +180,7 @@ public class MainFrame extends JFrame {
         loadPurchases();
         loadCustomersForPurchase();
         loadAvailableWands();
-
+        
         return panel;
     }
 
@@ -214,12 +226,11 @@ public class MainFrame extends JFrame {
             String costText = purchaseCostField.getText().trim();
 
             if (selectedCustomer == null || selectedWand == null || dateText.isEmpty() || costText.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Все поля должны быть заполнены!");
-                return;
+                throw new IllegalArgumentException("Все поля должны быть заполнены!");
             }
-
-            LocalDate purchaseDate = LocalDate.parse(dateText);
+            LocalDate purchaseDate = Validator.validateDate(dateText);
             double cost = Double.parseDouble(costText);
+            Validator.validatePrice(cost);
 
             Purchase newPurchase = new Purchase(
                     selectedCustomer.getId(),
@@ -227,10 +238,8 @@ public class MainFrame extends JFrame {
                     cost,
                     selectedWand.getId()
             );
-
             dao.addPurchase(newPurchase);
             JOptionPane.showMessageDialog(this, "Покупка успешно добавлена!");
-
             loadPurchases();
             loadAvailableWands();
         } catch (DateTimeParseException e) {
@@ -240,7 +249,12 @@ public class MainFrame extends JFrame {
                     JOptionPane.ERROR_MESSAGE);
         } catch (NumberFormatException e) {
             JOptionPane.showMessageDialog(this,
-                    "Неверный формат стоимости",
+                    "Неверный формат стоимости. Введите число.",
+                    "Ошибка",
+                    JOptionPane.ERROR_MESSAGE);
+        } catch (IllegalArgumentException e) {
+            JOptionPane.showMessageDialog(this,
+                    e.getMessage(),
                     "Ошибка",
                     JOptionPane.ERROR_MESSAGE);
         }
@@ -250,12 +264,13 @@ public class MainFrame extends JFrame {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         suppliesTableModel = new DefaultTableModel(
-                new Object[]{"ID", "Дата", "Поставщик", "Тип материала", "Количество", "Тип материала", "Количество"}, 0) {
+                new Object[]{"ID", "Дата", "Поставщик", "Тип древесины", "Количество", "Тип сердцевины", "Количество"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
             }
         };
+        
         suppliesTable = new JTable(suppliesTableModel);
         customizeTable(suppliesTable);
         JTabbedPane tabbedPane = new JTabbedPane();
@@ -266,6 +281,53 @@ public class MainFrame extends JFrame {
         tabbedPane.addTab("Просмотр поставок", viewPanel);
         panel.add(tabbedPane, BorderLayout.CENTER);
         loadSuppliesData();
+        
+        return panel;
+    }
+    
+    private JPanel createMaterialsPanel() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        String[] woodColumns = {"Тип древесины", "Количество на складе"};
+        woodTableModel = new DefaultTableModel(woodColumns, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+        woodTable = new JTable(woodTableModel);
+        customizeTable(woodTable);
+
+        String[] coreColumns = {"Тип сердцевины", "Количество на складе"};
+        coreTableModel = new DefaultTableModel(coreColumns, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+        coreTable = new JTable(coreTableModel);
+        customizeTable(coreTable);
+
+        JPanel tablesPanel = new JPanel(new GridLayout(1, 2, 10, 10));
+        tablesPanel.add(new JScrollPane(woodTable));
+        tablesPanel.add(new JScrollPane(coreTable));
+
+        JButton refreshButton = new JButton("Обновить данные");
+        refreshButton.addActionListener(e -> {
+            loadWoodData(woodTableModel);
+            loadCoreData(coreTableModel);
+        });
+
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.add(refreshButton);
+
+        panel.add(tablesPanel, BorderLayout.CENTER);
+        panel.add(buttonPanel, BorderLayout.SOUTH);
+
+        loadWoodData(woodTableModel);
+        loadCoreData(coreTableModel);
+
         return panel;
     }
 
@@ -274,13 +336,18 @@ public class MainFrame extends JFrame {
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.anchor = GridBagConstraints.WEST;
+
         supplySupplierField = new JTextField(20);
         supplyWoodBox = new JComboBox<>(new String[]{"Дуб", "Ясень", "Сосна"});
         supplyCoreBox = new JComboBox<>(new String[]{"Феникс", "Дракон", "Единорог"});
-        woodQuantityField = new JTextField(10);
-        coreQuantityField = new JTextField(10);
+        woodQuantityField = new JTextField("0", 10);
+        coreQuantityField = new JTextField("0", 10);
+        woodQuantityField.setInputVerifier(new IntegerInputVerifier());
+        coreQuantityField.setInputVerifier(new IntegerInputVerifier());
+
         loadSupplyWoodTypes();
         loadSupplyCoreTypes();
+
         gbc.gridx = 0;
         gbc.gridy = 0;
         panel.add(new JLabel("Поставщик:"), gbc);
@@ -310,6 +377,7 @@ public class MainFrame extends JFrame {
         panel.add(new JLabel("Количество:"), gbc);
         gbc.gridx = 1;
         panel.add(coreQuantityField, gbc);
+
         gbc.gridx = 0;
         gbc.gridy = 5;
         gbc.gridwidth = 2;
@@ -331,11 +399,19 @@ public class MainFrame extends JFrame {
     private void customizeTable(JTable table) {
         table.setRowHeight(25);
         table.setAutoCreateRowSorter(true);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+
         JTableHeader header = table.getTableHeader();
         header.setFont(new Font("SansSerif", Font.BOLD, 14));
         header.setBackground(new Color(70, 130, 180));
         header.setForeground(Color.WHITE);
+        header.setReorderingAllowed(false);
+        
+        DefaultTableCellRenderer rightRenderer = new DefaultTableCellRenderer();
+        rightRenderer.setHorizontalAlignment(SwingConstants.RIGHT);
+        table.getColumnModel().getColumn(1).setCellRenderer(rightRenderer);
     }
+    
     private void addSupply() {
         try {
             String supplier = supplySupplierField.getText().trim();
@@ -347,24 +423,41 @@ public class MainFrame extends JFrame {
             if (supplier.isEmpty()) {
                 throw new IllegalArgumentException("Укажите поставщика");
             }
+            if (woodQty <= 0 && coreQty <= 0) {
+                throw new IllegalArgumentException("Должно быть указано количество хотя бы для одного компонента");
+            }
+
             Supply supply = new Supply(LocalDate.now(), supplier);
             int supplyId = dao.addSupply(supply);
 
             if (supplyId == -1) {
                 throw new RuntimeException("Не удалось сохранить поставку");
             }
-            dao.addWoodSupply(new WoodSupply(supplyId, woodType, woodQty));
-            dao.addCoreSupply(new CoreSupply(supplyId, coreType, coreQty));
+
+            if (woodQty > 0) {
+                WoodSupply woodSupply = new WoodSupply(supplyId, woodType, woodQty);
+                dao.addWoodSupply(woodSupply);
+            }
+
+            if (coreQty > 0) {
+                CoreSupply coreSupply = new CoreSupply(supplyId, coreType, coreQty);
+                dao.addCoreSupply(coreSupply);
+            }
+
             supplySupplierField.setText("");
-            woodQuantityField.setText("");
-            coreQuantityField.setText("");
-            loadSuppliesData();
+            woodQuantityField.setText("0");
+            coreQuantityField.setText("0");
+            
+            loadWoodData(woodTableModel);
+            loadCoreData(coreTableModel);
+            loadWoodTypes(); 
+            loadCoreTypes();
 
             JOptionPane.showMessageDialog(this, "Поставка успешно добавлена!");
 
         } catch (NumberFormatException e) {
             JOptionPane.showMessageDialog(this,
-                    "Некорректное количество",
+                    "Некорректное количество. Введите целое число.",
                     "Ошибка ввода",
                     JOptionPane.ERROR_MESSAGE);
         } catch (IllegalArgumentException e) {
@@ -377,7 +470,6 @@ public class MainFrame extends JFrame {
                     "Ошибка: " + e.getMessage(),
                     "Ошибка",
                     JOptionPane.ERROR_MESSAGE);
-            e.printStackTrace();
         }
     }
     
@@ -427,7 +519,6 @@ public class MainFrame extends JFrame {
                         "Ошибка загрузки поставок: " + e.getMessage(),
                         "Ошибка",
                         JOptionPane.ERROR_MESSAGE);
-                e.printStackTrace();
             }
         });
     }
@@ -446,7 +537,6 @@ public class MainFrame extends JFrame {
                 woodSuppliesArea.setText(sb.toString());
             } catch (Exception e) {
                 woodSuppliesArea.setText("Ошибка при загрузке данных о поставках древесины");
-                e.printStackTrace();
             }
         });
     }
@@ -465,7 +555,6 @@ public class MainFrame extends JFrame {
                 coreSuppliesArea.setText(sb.toString());
             } catch (Exception e) {
                 coreSuppliesArea.setText("Ошибка при загрузке данных о поставках сердцевины");
-                e.printStackTrace();
             }
         });
     }
@@ -503,13 +592,28 @@ public class MainFrame extends JFrame {
             JOptionPane.showMessageDialog(this, "Пожалуйста, заполните все поля.");
             return;
         }
-        Customer customer = new Customer(name, phone);
-        dao.addCustomer(customer);
-        JOptionPane.showMessageDialog(this, "Покупатель добавлен: " + customer);
-        customerNameField.setText("");
-        customerPhoneField.setText("");
-        loadCustomers();
-        loadCustomersForPurchase();
+        try { 
+            int phone1 = Integer.parseInt(phone);
+            if (phone1 > 0) {
+                Customer customer = new Customer(name, phone);
+                dao.addCustomer(customer);
+                JOptionPane.showMessageDialog(this, "Покупатель добавлен: " + customer);
+                customerNameField.setText("");
+                customerPhoneField.setText("");
+                loadCustomers();
+                loadCustomersForPurchase(); 
+            } else {
+                JOptionPane.showMessageDialog(this,
+                    "Некорректный номер",
+                    "Ошибка ввода",
+                    JOptionPane.ERROR_MESSAGE);
+            }  
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(this,
+                    "Некорректный номер",
+                    "Ошибка ввода",
+                    JOptionPane.ERROR_MESSAGE);
+    }
     }
 
     private void loadCustomers() {
@@ -532,12 +636,13 @@ public class MainFrame extends JFrame {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         wandPriceField = new JTextField(10);
         wandStatusBox = new JComboBox<>(new String[]{"На складе", "Продана"});
+        
         wandWoodBox = new JComboBox<>();
         wandCoreBox = new JComboBox<>();
 
         loadWoodTypes();
         loadCoreTypes();
-
+        
         gbc.gridx = 0;
         gbc.gridy = 0;
         inputPanel.add(new JLabel("Цена:"), gbc);
@@ -575,7 +680,7 @@ public class MainFrame extends JFrame {
         buttonPanel.add(refreshButton);
         inputPanel.add(buttonPanel, gbc);
 
-        String[] columnNames = {"ID", "Цена", "Статус", "Древесина", "Сердцевина", "Наличие"};
+        String[] columnNames = {"ID", "Цена", "Статус", "Древесина", "Сердцевина"};
         DefaultTableModel model = new DefaultTableModel(columnNames, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -616,6 +721,7 @@ public class MainFrame extends JFrame {
                 return this;
             }
         });
+        
 
         JTableHeader header = wandsTable.getTableHeader();
         header.setFont(new Font("SansSerif", Font.BOLD, 14));
@@ -632,29 +738,55 @@ public class MainFrame extends JFrame {
 
         return panel;
     }
-
+    
     private void addWand() {
-        String priceText = wandPriceField.getText().trim();
-        String status = (String) wandStatusBox.getSelectedItem();
-        String woodType = (String) wandWoodBox.getSelectedItem();
-        String coreType = (String) wandCoreBox.getSelectedItem();
-        if (priceText.isEmpty() || woodType == null || coreType == null) {
-            JOptionPane.showMessageDialog(this, "Пожалуйста, заполните все поля.");
-            return;
-        }
-        double price;
         try {
-            price = Double.parseDouble(priceText);
+            String priceText = wandPriceField.getText().trim();
+            String status = (String) wandStatusBox.getSelectedItem();
+            String woodSelection = (String) wandWoodBox.getSelectedItem();
+            String coreSelection = (String) wandCoreBox.getSelectedItem();
+
+            String woodType = woodSelection.split("\\s+")[0];
+            String coreType = coreSelection.split("\\s+")[0];
+
+            double price = Double.parseDouble(priceText);
+            Validator.validatePrice(price);
+
+            Wood wood = dao.getWoodByType(woodType);
+            Core core = dao.getCoreByType(coreType);
+
+            if (wood == null || wood.getQuantityInStock() < 1) {
+                throw new IllegalArgumentException("Недостаточно древесины типа: " + woodType);
+            }
+
+            if (core == null || core.getQuantityInStock() < 1) {
+                throw new IllegalArgumentException("Недостаточно сердцевины типа: " + coreType);
+            }
+
+            Wand wand = new Wand(price, status, woodType, coreType);
+            dao.addWand(wand);
+
+            JOptionPane.showMessageDialog(this,
+                    "Палочка успешно создана!\n",
+                    "Успех",
+                    JOptionPane.INFORMATION_MESSAGE);
+            wandPriceField.setText("");
+            loadWoodTypes();
+            loadCoreTypes();
+            loadWands();
+            loadAvailableWands();
+
         } catch (NumberFormatException ex) {
-            JOptionPane.showMessageDialog(this, "Неверный формат цены.");
-            return;
+            JOptionPane.showMessageDialog(this,
+                    "Неверный формат цены. Введите число.",
+                    "Ошибка",
+                    JOptionPane.ERROR_MESSAGE);
+        } catch (IllegalArgumentException ex) {
+            JOptionPane.showMessageDialog(this,
+                    ex.getMessage(),
+                    "Ошибка",
+                    JOptionPane.ERROR_MESSAGE);
         }
-        Wand wand = new Wand(price, status, woodType, coreType);
-        dao.addWand(wand);
-        JOptionPane.showMessageDialog(this, "Палочка добавлена: " + wand);
-        wandPriceField.setText("");
-        loadWands();
-        loadAvailableWands();
     }
 
     private void loadWands() {
@@ -677,54 +809,30 @@ public class MainFrame extends JFrame {
 
     private void loadWoodTypes() {
         SwingUtilities.invokeLater(() -> {
-            String selected = (String) wandWoodBox.getSelectedItem();
             DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
-            model.addElement("Дуб");
-            model.addElement("Ясень");
-            model.addElement("Сосна");
             List<Wood> woods = dao.getAllWoods();
             for (Wood wood : woods) {
-                if (!modelContains(model, wood.getType())) {
-                    model.addElement(wood.getType());
+                if (wood.getQuantityInStock() > 0) {
+                    model.addElement(wood.getType() + " (остаток: " + wood.getQuantityInStock() + ")");
                 }
             }
-
             wandWoodBox.setModel(model);
-            if (selected != null && modelContains(model, selected)) {
-                wandWoodBox.setSelectedItem(selected);
-            }
         });
     }
 
     private void loadCoreTypes() {
         SwingUtilities.invokeLater(() -> {
-            String selected = (String) wandCoreBox.getSelectedItem();
             DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
-            model.addElement("Феникс");
-            model.addElement("Дракон");
-            model.addElement("Единорог");
             List<Core> cores = dao.getAllCores();
             for (Core core : cores) {
-                if (!modelContains(model, core.getType())) {
-                    model.addElement(core.getType());
+                if (core.getQuantityInStock() > 0) {
+                    model.addElement(core.getType() + " (остаток: " + core.getQuantityInStock() + ")");
                 }
             }
             wandCoreBox.setModel(model);
-            if (selected != null && modelContains(model, selected)) {
-                wandCoreBox.setSelectedItem(selected);
-            }
         });
     }
-
-    private boolean modelContains(DefaultComboBoxModel<String> model, String value) {
-        for (int i = 0; i < model.getSize(); i++) {
-            if (model.getElementAt(i).equals(value)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
+    
     private void loadCustomersForPurchase() {
         SwingUtilities.invokeLater(() -> {
             customerComboBox.removeAllItems();
@@ -824,4 +932,48 @@ public class MainFrame extends JFrame {
         String[] defaultCoreTypes = {"Феникс", "Дракон", "Единорог"};
         supplyCoreBox.setModel(new DefaultComboBoxModel<>(defaultCoreTypes));
     }
+
+    private void loadWoodData(DefaultTableModel model) {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                List<Wood> woods = dao.getAllWoods();
+                model.setRowCount(0); 
+                woods.sort(Comparator.comparing(Wood::getType));
+
+                for (Wood wood : woods) {
+                    model.addRow(new Object[]{
+                        wood.getType(),
+                        wood.getQuantityInStock()
+                    });
+                }
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(this,
+                        "Ошибка загрузки данных о древесине: " + e.getMessage(),
+                        "Ошибка",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        });
+    }
+
+    private void loadCoreData(DefaultTableModel model) {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                List<Core> cores = dao.getAllCores();
+                model.setRowCount(0);
+                cores.sort((c1, c2) -> c1.getType().compareTo(c2.getType()));
+
+                for (Core core : cores) {
+                    model.addRow(new Object[]{
+                        core.getType(),
+                        core.getQuantityInStock()
+                    });
+                }
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(this,
+                        "Ошибка: " + e.getMessage(),
+                        "Ошибка",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        });
+    }   
 }

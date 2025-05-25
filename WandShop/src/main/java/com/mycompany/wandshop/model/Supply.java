@@ -4,7 +4,6 @@ package com.mycompany.wandshop.model;
  * @author lihac
  */
 import java.time.LocalDate;
-import java.util.Objects;
 
 public class Supply {
 
