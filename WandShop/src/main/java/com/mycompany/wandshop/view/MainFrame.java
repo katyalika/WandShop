@@ -9,7 +9,6 @@ import java.awt.event.ActionEvent;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
-import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 import javax.swing.table.*;
@@ -186,38 +185,76 @@ public class MainFrame extends JFrame {
 
     private void loadPurchases() {
         SwingUtilities.invokeLater(() -> {
-            List<Purchase> purchases = dao.getAllPurchases();
-            List<Customer> customers = dao.getAllCustomers();
-            List<Wand> wands = dao.getAllWands();
-            StringBuilder sb = new StringBuilder();
-            DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+            try {
+                List<Purchase> allPurchases = dao.getAllPurchases();
+                List<Customer> allCustomers = dao.getAllCustomers();
+                List<Wand> allWands = dao.getAllWands();
 
-            for (Purchase p : purchases) {
-                String customerName = customers.stream()
-                        .filter(c -> c.getId() == p.getCustomerId())
-                        .findFirst()
-                        .map(Customer::getName)
-                        .orElse("Неизвестный");
+                StringBuilder resultText = new StringBuilder();
+                String datePattern = "yyyy-MM-dd";
 
-                String wandInfo = wands.stream()
-                        .filter(w -> w.getId() == p.getWandId())
-                        .findFirst()
-                        .map(w -> w.getWoodType() + "/" + w.getCoreType())
-                        .orElse("Неизвестная");
-
-                sb.append(String.format(
-                        "ID: %d | Дата: %s\nПокупатель: %s\nПалочка: %s\nСтоимость: %.2f\n\n",
-                        p.getId(),
-                        p.getPurchaseDate().format(dateFormatter),
-                        customerName,
-                        wandInfo,
-                        p.getCost()
-                ));
+                for (Purchase purchase : allPurchases) {
+                    Customer customer = findCustomer(allCustomers, purchase.getCustomerId());
+                    if (customer == null) {
+                        showError("Покупатель не найден для покупки");
+                        continue; 
+                    }
+                    Wand wand = findWand(allWands, purchase.getWandId());
+                    if (wand == null) {
+                        showError("Палочка не найдена для покупки");
+                        continue;
+                    }
+                    String purchaseInfo = String.format(
+                            "ID: %d | Дата: %s%nПокупатель: %s%nПалочка: %s/%s%nСтоимость: %.2f%n%n",
+                            purchase.getId(),
+                            purchase.getPurchaseDate().format(DateTimeFormatter.ofPattern(datePattern)),
+                            customer.getName(),
+                            wand.getWoodType(),
+                            wand.getCoreType(),
+                            purchase.getCost()
+                    );
+                    resultText.append(purchaseInfo);
+                }
+                purchasesArea.setText(resultText.toString());
+            } catch (Exception e) {
+                showError("Ошибка при загрузке списка покупок", e);
             }
-            purchasesArea.setText(sb.toString());
         });
     }
+    
+    private Customer findCustomer(List<Customer> customers, int customerId) {
+        for (Customer customer : customers) {
+            if (customer.getId() == customerId) {
+                return customer;
+            }
+        }
+        return null;
+    }
 
+
+    private Wand findWand(List<Wand> wands, int wandId) {
+        for (Wand wand : wands) {
+            if (wand.getId() == wandId) {
+                return wand;
+            }
+        }
+        return null;
+    }
+    
+    private void showError(String message, Exception e) {
+        JOptionPane.showMessageDialog(this,
+                message + ": " + e.getMessage(),
+                "Ошибка",
+                JOptionPane.ERROR_MESSAGE);
+    }
+
+    private void showError(String message) {
+        JOptionPane.showMessageDialog(this,
+                message,
+                "Внимание",
+                JOptionPane.WARNING_MESSAGE);
+    }
+    
     private void addPurchase() {
         try {
             Customer selectedCustomer = (Customer) customerComboBox.getSelectedItem();
@@ -429,10 +466,6 @@ public class MainFrame extends JFrame {
 
             Supply supply = new Supply(LocalDate.now(), supplier);
             int supplyId = dao.addSupply(supply);
-
-            if (supplyId == -1) {
-                throw new RuntimeException("Не удалось сохранить поставку");
-            }
 
             if (woodQty > 0) {
                 WoodSupply woodSupply = new WoodSupply(supplyId, woodType, woodQty);
@@ -936,11 +969,8 @@ public class MainFrame extends JFrame {
     private void loadWoodData(DefaultTableModel model) {
         SwingUtilities.invokeLater(() -> {
             try {
-                List<Wood> woods = dao.getAllWoods();
-                model.setRowCount(0); 
-                woods.sort(Comparator.comparing(Wood::getType));
-
-                for (Wood wood : woods) {
+                model.setRowCount(0);
+                for (Wood wood : dao.getAllWoods()) {
                     model.addRow(new Object[]{
                         wood.getType(),
                         wood.getQuantityInStock()
@@ -948,21 +978,18 @@ public class MainFrame extends JFrame {
                 }
             } catch (Exception e) {
                 JOptionPane.showMessageDialog(this,
-                        "Ошибка загрузки данных о древесине: " + e.getMessage(),
+                        "Не удалось загрузить данные о древесине: " + e.getMessage(),
                         "Ошибка",
                         JOptionPane.ERROR_MESSAGE);
             }
         });
     }
-
+    
     private void loadCoreData(DefaultTableModel model) {
         SwingUtilities.invokeLater(() -> {
             try {
-                List<Core> cores = dao.getAllCores();
                 model.setRowCount(0);
-                cores.sort((c1, c2) -> c1.getType().compareTo(c2.getType()));
-
-                for (Core core : cores) {
+                for (Core core : dao.getAllCores()) {
                     model.addRow(new Object[]{
                         core.getType(),
                         core.getQuantityInStock()
@@ -970,10 +997,10 @@ public class MainFrame extends JFrame {
                 }
             } catch (Exception e) {
                 JOptionPane.showMessageDialog(this,
-                        "Ошибка: " + e.getMessage(),
+                        "Не удалось загрузить данные о сердцевине: " + e.getMessage(),
                         "Ошибка",
                         JOptionPane.ERROR_MESSAGE);
             }
         });
-    }   
+    }
 }

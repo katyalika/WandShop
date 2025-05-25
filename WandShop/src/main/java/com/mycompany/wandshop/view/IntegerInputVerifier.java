@@ -27,7 +27,7 @@ class IntegerInputVerifier extends InputVerifier {
         boolean valid = verify(input);
         if (!valid) {
             JOptionPane.showMessageDialog(input,
-                    "Пожалуйста, введите целое число ≥ 0",
+                    "Пожалуйста, введите корректное",
                     "Некорректный ввод",
                     JOptionPane.WARNING_MESSAGE);
             input.requestFocus();
